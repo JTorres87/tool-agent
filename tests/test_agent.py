@@ -103,7 +103,10 @@ def test_runs_tools_and_returns_cited_answer() -> None:
     [tool_result] = last_message(fake, 1)["content"]
     assert tool_result["tool_use_id"] == "toolu_1"
     assert tool_result["is_error"] is False
-    assert json.loads(tool_result["content"])["total_matching"] == 2
+    # The id is visible in the text, so the model can cite it on the first try
+    id_line, output = tool_result["content"].split("\n", 1)
+    assert id_line == "[tool_use_id: toolu_1]"
+    assert json.loads(output)["total_matching"] == 2
 
     # The whole assistant turn stays in the history, not just its text
     assert fake.sent[2][-2]["role"] == "assistant"
@@ -134,7 +137,7 @@ def test_tool_errors_go_back_to_the_model() -> None:
     run(fake)
     [tool_result] = last_message(fake, 1)["content"]
     assert tool_result["is_error"] is True
-    assert tool_result["content"].startswith("KeyError")
+    assert tool_result["content"].split("\n", 1)[1].startswith("KeyError")
 
 
 def test_bad_citation_gets_feedback_and_a_retry() -> None:

@@ -93,7 +93,11 @@ class FinalAnswer(BaseModel):
         description="Plain-language reply to the user, ending with a sentence citing the sources"
     )
     source_tool_use_ids: list[str] = Field(
-        min_length=1, description="The ids of the tool calls the answer is based on"
+        min_length=1,
+        description=(
+            "The exact id of each tool_use block the answer is based on, copied as-is "
+            "(ids start with 'toolu_'). Not the tool name, and not an id you make up."
+        ),
     )
     chosen: CostEstimate | None = Field(
         default=None,

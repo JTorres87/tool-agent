@@ -113,7 +113,9 @@ def run_agent(question: str, client: anthropic.Anthropic | None = None) -> Agent
                 {
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": output,
+                    # The id goes in the text too: the model can't see tool_use ids
+                    # otherwise, so it can't cite them on the first try.
+                    "content": f"[tool_use_id: {block.id}]\n{output}",
                     "is_error": is_error,
                 }
             )

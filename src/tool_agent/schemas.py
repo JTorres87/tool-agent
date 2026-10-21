@@ -99,3 +99,26 @@ class FinalAnswer(BaseModel):
         default=None,
         description="For cost questions only: the one estimate_cost result the answer picked",
     )
+
+
+class Verdict(BaseModel):
+    """What the verifier model returns about one final answer."""
+
+    correct: bool = Field(
+        description="True only if every claim in the answer is supported by the tool results"
+    )
+    problems: list[str] = Field(
+        description="Each claim that is wrong or unsupported, and why; empty when correct"
+    )
+
+
+class AgentResult(BaseModel):
+    """What run_agent returns: the answer, whether it passed verification, and counters."""
+
+    answer: FinalAnswer
+    verified: bool
+    concerns: list[str] = Field(
+        description="The verifier's last objections when the answer comes back unverified"
+    )
+    citation_failures: int
+    verifier_rejections: int

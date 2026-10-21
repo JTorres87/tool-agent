@@ -13,4 +13,7 @@ DEFAULT_QUESTION = (
 def main() -> None:
     load_dotenv()
     question = " ".join(sys.argv[1:]) or DEFAULT_QUESTION
-    print(run_agent(question).model_dump_json(indent=2))
+    result = run_agent(question)
+    print(result.model_dump_json(indent=2))
+    if not result.verified:
+        print("\nWARNING: the verifier did not accept this answer.", file=sys.stderr)

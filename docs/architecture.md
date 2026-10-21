@@ -1,8 +1,10 @@
 # Architecture
 
-A user asks a question through the one-shot CLI (or, once built, a chat session that keeps the conversation). The agent loop gives Claude the tool definitions, runs each tool call through the dispatcher, and returns a validated `FinalAnswer` that cites the tool calls it relied on. Tools are typed: the dispatcher validates the model's input against a Pydantic model before running `list_models`, `get_model` or `estimate_cost`, which read a SQLite catalog. The setup and seed commands fill that catalog from OpenRouter's public model list (Anthropic, OpenAI and xAI models, with prices).
+A user asks a question through the one-shot CLI (or, once built, a chat session that keeps the conversation). The agent loop runs on Claude Haiku: it gives the model the tool definitions, runs each tool call through the dispatcher, and feeds the results back until the model answers. Tools are typed: the dispatcher validates the model's input against a Pydantic model before running `list_models`, `get_model` or `estimate_cost`, which read a SQLite catalog. The setup and seed commands fill that catalog from OpenRouter's public model list (Anthropic, OpenAI and xAI models, with prices).
 
-Dashed edges are planned: the loop body (Claude call, tool dispatch, cited final answer) and the chat session are not written yet.
+Every final answer goes through two checks before it's returned. The citation check (free, in code) confirms each cited tool call happened and that the chosen estimate matches its result. The verifier (Claude Sonnet) then checks the answer's claims against the cited results. A failed check sends feedback to the loop for another try; after two verifier rejections the answer is returned flagged, with the verifier's concerns.
+
+Dashed edges are planned: the chat session is not written yet.
 
 ```mermaid
 flowchart TD
@@ -10,8 +12,13 @@ flowchart TD
 subgraph group_entry["Entry &amp; Agent Loop"]
   node_cli["One-shot CLI<br/>tool-agent"]
   node_chat["Chat Session<br/>tool-agent-chat"]
-  node_agent_loop["Agent Loop<br/>run_agent"]
-  node_settings["Model Settings<br/>Haiku, Sonnet fallback"]
+  node_agent_loop["Agent Loop<br/>run_agent on Haiku"]
+  node_settings["Model Settings<br/>Haiku, Sonnet verifier"]
+end
+
+subgraph group_checks["Answer Checks"]
+  node_citation_check["Citation Check<br/>free, in code"]
+  node_verifier["Answer Verifier<br/>Sonnet 5.5"]
 end
 
 subgraph group_tools["Typed Tools"]
@@ -27,7 +34,7 @@ subgraph group_catalog["Model Catalog"]
 end
 
 subgraph group_models["Pydantic Schemas"]
-  node_schemas["Tool I/O &amp; FinalAnswer<br/>Pydantic models"]
+  node_schemas["Tool I/O, FinalAnswer, Verdict<br/>Pydantic models"]
 end
 
 node_user(("User<br/>actor"))
@@ -39,10 +46,12 @@ node_user -.->|"chats"| node_chat
 node_cli -->|"calls run_agent"| node_agent_loop
 node_chat -.->|"runs each turn"| node_agent_loop
 node_agent_loop -->|"reads"| node_settings
-node_agent_loop -->|"gets tool defs"| node_registry
-node_agent_loop -.->|"messages.create"| node_claude_api
-node_agent_loop -.->|"dispatches"| node_registry
-node_agent_loop -.->|"returns FinalAnswer"| node_schemas
+node_agent_loop -->|"messages.parse"| node_claude_api
+node_agent_loop -->|"dispatches tool calls"| node_registry
+node_agent_loop -->|"checks citations"| node_citation_check
+node_agent_loop -->|"verifies answer"| node_verifier
+node_verifier -->|"checks claims"| node_claude_api
+node_agent_loop -->|"returns AgentResult"| node_schemas
 node_registry -->|"validates input"| node_schemas
 node_registry -->|"runs"| node_list_models
 node_registry -->|"runs"| node_get_model
@@ -57,6 +66,8 @@ click node_cli "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent
 click node_chat "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/chat.py"
 click node_agent_loop "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/agent.py"
 click node_settings "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/config.py"
+click node_citation_check "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/agent.py"
+click node_verifier "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/verify.py"
 click node_registry "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/tools.py"
 click node_list_models "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/tools.py"
 click node_get_model "https://github.com/JTorres87/tool-agent/blob/main/src/tool_agent/tools.py"
@@ -73,7 +84,8 @@ classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
 classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
 classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
 class node_cli,node_chat,node_agent_loop,node_settings,node_user toneBlue
-class node_registry,node_list_models,node_get_model,node_estimate_cost toneAmber
-class node_catalog_db,node_seeder,node_openrouter,node_claude_api toneMint
-class node_schemas toneRose
+class node_citation_check,node_verifier toneAmber
+class node_registry,node_list_models,node_get_model,node_estimate_cost,node_openrouter,node_claude_api toneMint
+class node_catalog_db,node_seeder toneRose
+class node_schemas toneIndigo
 ```

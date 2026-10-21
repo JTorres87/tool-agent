@@ -9,6 +9,7 @@ A CLI agent that helps you choose an LLM and plan what it will cost to run. It's
 - **Typed tools** ([tools.py](src/tool_agent/tools.py)): `list_models`, `get_model` and `estimate_cost`. Every tool input and output is a Pydantic model, and tool schemas are generated from those models.
 - **Model catalog** ([db.py](src/tool_agent/db.py), [seed.py](src/tool_agent/seed.py)): SQLite, seeded from OpenRouter's public model list (no API key needed). Prices are OpenRouter's listed rates.
 - **Cited final answer** ([schemas.py](src/tool_agent/schemas.py)): the agent returns a validated `FinalAnswer` that cites the tool calls it relied on, and the citations are checked against the calls actually made
+- **Verifier** ([verify.py](src/tool_agent/verify.py)): Haiku does the work; Sonnet then checks each final answer's claims against the tool results it cites. A rejected answer goes back for a fix; after two rejections it's returned flagged, with the verifier's concerns.
 
 ## Run it
 

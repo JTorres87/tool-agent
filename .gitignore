@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Model catalog, rebuilt by `uv run tool-agent-setup`
+data/

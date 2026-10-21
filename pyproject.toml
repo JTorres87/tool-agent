@@ -1,0 +1,47 @@
+[project]
+name = "tool-agent"
+version = "0.1.0"
+description = "CLI agent that picks and prices LLMs: raw tool loop, Pydantic I/O, SQLite catalog"
+authors = [
+    { name = "John A. Torres", email = "john.torres87@outlook.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.15.0",
+    "pydantic>=2.14.1",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+tool-agent = "tool_agent.cli:main"
+tool-agent-chat = "tool_agent.chat:main"
+tool-agent-setup = "tool_agent.seed:setup"
+tool-agent-seed = "tool_agent.seed:seed"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# OneDrive doesn't support hardlinks
+link-mode = "copy"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]

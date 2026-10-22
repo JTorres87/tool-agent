@@ -1,10 +1,8 @@
 # Architecture
 
-A user asks a question through the one-shot CLI (or, once built, a chat session that keeps the conversation). The agent loop runs on Claude Haiku: it gives the model the tool definitions, runs each tool call through the dispatcher, and feeds the results back until the model answers. Tools are typed: the dispatcher validates the model's input against a Pydantic model before running `list_models`, `get_model` or `estimate_cost`, which read a SQLite catalog. The setup and seed commands fill that catalog from OpenRouter's public model list (Anthropic, OpenAI and xAI models, with prices).
+A user asks a question through the one-shot CLI, or in a chat session that keeps the conversation, so follow-ups can build on earlier answers and cite their tool calls. A chat turn that fails partway is rolled back, so the session stays usable. The agent loop runs on Claude Haiku: it gives the model the tool definitions, runs each tool call through the dispatcher, and feeds the results back until the model answers. Tools are typed: the dispatcher validates the model's input against a Pydantic model before running `list_models`, `get_model` or `estimate_cost`, which read a SQLite catalog. The setup and seed commands fill that catalog from OpenRouter's public model list (Anthropic, OpenAI and xAI models, with prices).
 
 Every final answer goes through two checks before it's returned. The citation check (free, in code) confirms each cited tool call happened and that the chosen estimate matches its result. The verifier (Claude Sonnet) then checks the answer's claims against the cited results. A failed check sends feedback to the loop for another try; after two verifier rejections the answer is returned flagged, with the verifier's concerns.
-
-Dashed edges are planned: the chat session is not written yet.
 
 ```mermaid
 flowchart TD
@@ -42,9 +40,9 @@ node_openrouter{{"OpenRouter Models API<br/>external"}}
 node_claude_api{{"Anthropic Messages API<br/>external"}}
 
 node_user -->|"asks"| node_cli
-node_user -.->|"chats"| node_chat
+node_user -->|"chats"| node_chat
 node_cli -->|"calls run_agent"| node_agent_loop
-node_chat -.->|"runs each turn"| node_agent_loop
+node_chat -->|"runs each turn"| node_agent_loop
 node_agent_loop -->|"reads"| node_settings
 node_agent_loop -->|"messages.parse"| node_claude_api
 node_agent_loop -->|"dispatches tool calls"| node_registry

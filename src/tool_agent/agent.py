@@ -1,9 +1,10 @@
 import json
 import sys
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import anthropic
-from anthropic.types import ToolResultBlockParam
+from anthropic.types import MessageParam, ToolResultBlockParam
 from pydantic import ValidationError
 
 from tool_agent.config import MAX_STEPS, MAX_TOKENS, MAX_VERIFIER_REJECTIONS, MODEL
@@ -19,11 +20,48 @@ SYSTEM = (
 )
 
 
+@dataclass
+class Conversation:
+    """Everything that carries over between turns of a chat."""
+
+    messages: list[MessageParam] = field(default_factory=list)
+    # Every tool call so far, so an answer can cite results from earlier turns
+    tool_calls: dict[str, ToolCall] = field(default_factory=dict)
+    questions: list[str] = field(default_factory=list)
+
+
 def run_agent(question: str, client: anthropic.Anthropic | None = None) -> AgentResult:
-    client = client or anthropic.Anthropic()
+    """One question, one answer: a conversation that lasts a single turn."""
+    return run_turn(Conversation(), question, client or anthropic.Anthropic())
+
+
+def run_turn(conversation: Conversation, question: str, client: anthropic.Anthropic) -> AgentResult:
+    """TODO 7 (done): add the question to the conversation and run the loop until
+    there's an answer. The history keeps growing, so the model sees earlier questions,
+    tool calls and answers.
+
+    TODO 9 (done): if the turn fails partway (API error, step guard, Ctrl-C), undo it.
+    A half-finished turn can end on a tool_use with no tool_result, and the API
+    rejects every later request with that history. Rolling back keeps the session
+    usable: the user just asks again.
+    """
+    saved_messages = len(conversation.messages)
+    saved_calls = dict(conversation.tool_calls)
+    conversation.messages.append({"role": "user", "content": question})
+    try:
+        result = _loop(conversation, question, client)
+    except BaseException:
+        del conversation.messages[saved_messages:]
+        conversation.tool_calls = saved_calls
+        raise
+    conversation.questions.append(question)
+    return result
+
+
+def _loop(conversation: Conversation, question: str, client: anthropic.Anthropic) -> AgentResult:
     tools = tool_definitions()
-    messages: list[anthropic.types.MessageParam] = [{"role": "user", "content": question}]
-    tool_calls: dict[str, ToolCall] = {}  # tool_use_id -> the call, for the citation check
+    messages = conversation.messages
+    tool_calls = conversation.tool_calls  # tool_use_id -> the call, for the citation check
     citation_failures = 0
     verifier_rejections = 0
 
@@ -65,7 +103,12 @@ def run_agent(question: str, client: anthropic.Anthropic | None = None) -> Agent
 
             # Verifier: a stronger model checks the answer's claims against the cited
             # results. The citation check above is free; this costs one call per answer.
-            verdict = verify(question, answer, tool_calls, client)
+            verdict = verify(
+                _with_earlier_questions(question, conversation.questions),
+                answer,
+                tool_calls,
+                client,
+            )
             if verdict.correct:
                 print("    verifier: correct", file=sys.stderr)
                 return AgentResult(
@@ -124,6 +167,14 @@ def run_agent(question: str, client: anthropic.Anthropic | None = None) -> Agent
         messages.append({"role": "user", "content": results})
 
     raise RuntimeError(f"Agent did not finish within {MAX_STEPS} steps")
+
+
+def _with_earlier_questions(question: str, earlier: list[str]) -> str:
+    """A follow-up like "the cheapest of those" needs the earlier questions to make sense."""
+    if not earlier:
+        return question
+    history = "\n".join(f"- {q}" for q in earlier)
+    return f"Earlier questions in this conversation:\n{history}\n\nCurrent question: {question}"
 
 
 def citation_problems(answer: FinalAnswer, calls: dict[str, ToolCall]) -> list[str]:

@@ -6,6 +6,9 @@ authors = [
     { name = "John A. Torres", email = "john.torres87@outlook.com" }
 ]
 requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
 dependencies = [
     "anthropic>=1.15.0",
     "pydantic>=2.14.1",

@@ -141,7 +141,7 @@ def test_tool_errors_go_back_to_the_model() -> None:
 
 
 def test_bad_citation_gets_feedback_and_a_retry() -> None:
-    # Cites tool names instead of ids: what a real run did before TODO 6
+    # Cites tool names instead of ids: what real runs did before ids were shown in tool results
     wrong = FinalAnswer(answer="$600.", source_tool_use_ids=["estimate_cost"], chosen=ESTIMATE)
     fixed = FinalAnswer(answer="$600.", source_tool_use_ids=["toolu_1"], chosen=ESTIMATE)
     fake = FakeClient(

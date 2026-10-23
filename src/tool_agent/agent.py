@@ -1,5 +1,5 @@
 import json
-import sys
+import logging
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -11,6 +11,8 @@ from tool_agent.config import MAX_STEPS, MAX_TOKENS, MAX_VERIFIER_REJECTIONS, MO
 from tool_agent.schemas import AgentResult, CostEstimate, FinalAnswer
 from tool_agent.tools import dispatch, tool_definitions
 from tool_agent.verify import ToolCall, verify
+
+log = logging.getLogger(__name__)
 
 SYSTEM = (
     "You help teams choose an LLM and plan what it will cost to run. "
@@ -36,14 +38,13 @@ def run_agent(question: str, client: anthropic.Anthropic | None = None) -> Agent
 
 
 def run_turn(conversation: Conversation, question: str, client: anthropic.Anthropic) -> AgentResult:
-    """TODO 7 (done): add the question to the conversation and run the loop until
-    there's an answer. The history keeps growing, so the model sees earlier questions,
-    tool calls and answers.
+    """Add the question to the conversation and run the loop until there's an answer.
 
-    TODO 9 (done): if the turn fails partway (API error, step guard, Ctrl-C), undo it.
-    A half-finished turn can end on a tool_use with no tool_result, and the API
+    The history keeps growing, so the model sees earlier questions, tool calls and
+    answers. If the turn fails partway (API error, step guard, Ctrl-C), it's undone:
+    a half-finished turn can end on a tool_use with no tool_result, and the API
     rejects every later request with that history. Rolling back keeps the session
-    usable: the user just asks again.
+    usable; the user just asks again.
     """
     saved_messages = len(conversation.messages)
     saved_calls = dict(conversation.tool_calls)
@@ -66,7 +67,7 @@ def _loop(conversation: Conversation, question: str, client: anthropic.Anthropic
     verifier_rejections = 0
 
     for step in range(MAX_STEPS):
-        # TODO 1 (done): one model call with the whole conversation so far.
+        # One model call with the whole conversation so far.
         # parse() is create() plus structured output: when Claude gives its final
         # answer, it must match FinalAnswer, and the SDK validates it for us.
         response = client.messages.parse(
@@ -77,25 +78,23 @@ def _loop(conversation: Conversation, question: str, client: anthropic.Anthropic
             messages=messages,
             output_format=FinalAnswer,
         )
-        # TODO 2 (done): keep every block (thinking, text, tool_use) in the history
+        # Keep every block (thinking, text, tool_use) in the history
         messages.append({"role": "assistant", "content": response.content})
-        _trace(step, response)
+        _log_step(step, response)
 
-        # TODO 3 (done): no tool call means this is the final answer
+        # No tool call means this is the final answer
         if response.stop_reason != "tool_use":
             answer = response.parsed_output
             if answer is None:
                 raise RuntimeError(f"No final answer (stop_reason={response.stop_reason})")
 
-            # TODO 6 (done): only return an answer whose citations check out;
-            # otherwise say what's wrong and let Claude try again (the step guard
-            # stops it from retrying forever)
+            # Citation check (free): only return an answer whose citations check
+            # out; otherwise say what's wrong and let Claude try again (the step
+            # guard stops it from retrying forever)
             problems = citation_problems(answer, tool_calls)
             if problems:
                 citation_failures += 1
-                print(
-                    f"    citation check failed ({citation_failures}): {problems}", file=sys.stderr
-                )
+                log.info("citation check failed (%d): %s", citation_failures, problems)
                 messages.append(
                     {"role": "user", "content": _citation_feedback(problems, tool_calls)}
                 )
@@ -110,7 +109,7 @@ def _loop(conversation: Conversation, question: str, client: anthropic.Anthropic
                 client,
             )
             if verdict.correct:
-                print("    verifier: correct", file=sys.stderr)
+                log.info("verifier: correct")
                 return AgentResult(
                     answer=answer,
                     verified=True,
@@ -119,10 +118,7 @@ def _loop(conversation: Conversation, question: str, client: anthropic.Anthropic
                     verifier_rejections=verifier_rejections,
                 )
             verifier_rejections += 1
-            print(
-                f"    verifier rejected ({verifier_rejections}): {verdict.problems}",
-                file=sys.stderr,
-            )
+            log.info("verifier rejected (%d): %s", verifier_rejections, verdict.problems)
             if verifier_rejections >= MAX_VERIFIER_REJECTIONS:
                 # Don't let a wrong or picky verifier burn the step budget: hand back
                 # the answer with its concerns and let the caller decide.
@@ -138,7 +134,7 @@ def _loop(conversation: Conversation, question: str, client: anthropic.Anthropic
             )
             continue
 
-        # TODO 4 (done): run every tool call; errors go back to Claude, not up the stack
+        # Run every tool call; errors go back to Claude, not up the stack
         results: list[ToolResultBlockParam] = []
         for block in response.content:
             if block.type != "tool_use":
@@ -163,7 +159,7 @@ def _loop(conversation: Conversation, question: str, client: anthropic.Anthropic
                 }
             )
 
-        # TODO 5 (done): ALL results in ONE user message, so parallel calls stay parallel
+        # ALL results in ONE user message, so parallel calls stay parallel
         messages.append({"role": "user", "content": results})
 
     raise RuntimeError(f"Agent did not finish within {MAX_STEPS} steps")
@@ -238,19 +234,22 @@ def _verifier_feedback(problems: list[str], calls: dict[str, ToolCall]) -> str:
     )
 
 
-def _trace(step: int, response: anthropic.types.Message) -> None:
-    """TEMPORARY: print each step to stderr. Section 3 replaces this with real logging."""
-    out = sys.stderr
-    print(f"--- step {step}: stop_reason={response.stop_reason}", file=out)
-    print(
-        f"    usage: {response.usage.input_tokens} in, {response.usage.output_tokens} out", file=out
+def _log_step(step: int, response: anthropic.types.Message) -> None:
+    """Each model step at DEBUG level: run the CLI with -vv to see them."""
+    if not log.isEnabledFor(logging.DEBUG):
+        return
+    u = response.usage
+    log.debug(
+        "step %d: stop_reason=%s, %d in / %d out tokens",
+        step,
+        response.stop_reason,
+        u.input_tokens,
+        u.output_tokens,
     )
     for block in response.content:
         if block.type == "tool_use":
-            print(f"    tool_use  id={block.id} name={block.name} input={block.input}", file=out)
+            log.debug("  tool_use %s %s %s", block.id, block.name, block.input)
         elif block.type == "text":
-            print(f"    text      {block.text[:200]!r}", file=out)
-        elif block.type == "thinking":
-            print(f"    thinking  ({len(block.thinking)} chars)", file=out)
+            log.debug("  text %r", block.text[:200])
         else:
-            print(f"    {block.type}", file=out)
+            log.debug("  %s", block.type)

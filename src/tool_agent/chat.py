@@ -1,22 +1,32 @@
 """Interactive chat: follow-up questions in one session, using the same agent loop."""
 
+import argparse
+
 import anthropic
 from dotenv import load_dotenv
 
 from tool_agent.agent import Conversation, run_turn
+from tool_agent.cli import setup_logging, verbosity_flag
 from tool_agent.schemas import AgentResult
 
-WELCOME = "Ask about models and costs. Type /quit to leave. (Step traces go to stderr.)"
+WELCOME = "Ask about models and costs. Type /quit to leave."
 QUIT = {"/quit", "/exit"}
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="tool-agent-chat", description="Chat about which LLM to use and what it costs."
+    )
+    verbosity_flag(parser)
+    args = parser.parse_args()
+
     load_dotenv()
+    setup_logging(args.verbose)
     chat(anthropic.Anthropic())
 
 
 def chat(client: anthropic.Anthropic) -> None:
-    # TODO 8 (done): read a line, run a turn, print the answer; repeat
+    # Read a line, run a turn, print the answer; repeat
     conversation = Conversation()
     print(WELCOME)
     while True:
@@ -30,7 +40,7 @@ def chat(client: anthropic.Anthropic) -> None:
         if line.lower() in QUIT:
             break
 
-        # TODO 9 (done): a failed turn doesn't end the session. run_turn has already
+        # A failed turn doesn't end the session. run_turn has already
         # rolled the history back, so the user can just ask again.
         try:
             result = run_turn(conversation, line, client)

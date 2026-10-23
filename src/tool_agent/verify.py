@@ -5,13 +5,15 @@ cited evidence, so one check costs far less than running the whole loop on a big
 """
 
 import json
-import sys
+import logging
 from typing import Any, NamedTuple
 
 import anthropic
 
 from tool_agent.config import MAX_TOKENS, VERIFIER_MODEL
 from tool_agent.schemas import FinalAnswer, Verdict
+
+log = logging.getLogger(__name__)
 
 
 class ToolCall(NamedTuple):
@@ -50,9 +52,11 @@ def verify(
         output_format=Verdict,
     )
     usage = response.usage
-    print(  # TEMPORARY, like agent._trace
-        f"--- verifier ({VERIFIER_MODEL}): {usage.input_tokens} in, {usage.output_tokens} out",
-        file=sys.stderr,
+    log.info(
+        "verifier (%s): %d in / %d out tokens",
+        VERIFIER_MODEL,
+        usage.input_tokens,
+        usage.output_tokens,
     )
     if response.parsed_output is None:  # refusal or cut off: don't pretend it passed
         return Verdict(
